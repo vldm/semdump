@@ -1,4 +1,4 @@
-use std::iter::repeat_n;
+use std::{iter::repeat_n, num::NonZero};
 
 use crate::{DataPart, Ref};
 
@@ -21,6 +21,7 @@ pub trait Formatter {
         starting_offset: usize,
         part_offset: usize,
         bytes: &[u8],
+        line_size: usize,
         references_starting_offset: RefenceIndex,
         references: &[Ref],
     ) -> Result<(), Self::Error> {
@@ -29,6 +30,7 @@ pub trait Formatter {
             starting_offset,
             part_offset,
             bytes,
+            line_size,
             references_starting_offset,
             references,
         )
@@ -55,6 +57,16 @@ pub trait Formatter {
     ///
     /// Note: Range is reference is relative to the start of the part.
     fn print_hex_chunk(
+        &mut self,
+        line_offset: usize,
+        bytes: &[u8],
+        reference: Option<FormatRef<'_>>,
+    ) -> Result<(), Self::Error>;
+
+    /// Add gap after hex chunk if needed.
+    fn add_hex_gap(&mut self, empty_bytes: NonZero<usize>) -> Result<(), Self::Error>;
+    /// Print the ASCII representation of the bytes chunk.
+    fn print_ascii_chunk(
         &mut self,
         line_offset: usize,
         bytes: &[u8],
@@ -93,6 +105,17 @@ where
     ) -> Result<(), Self::Error> {
         (*self).print_hex_chunk(offset, bytes, reference)
     }
+    fn add_hex_gap(&mut self, empty: NonZero<usize>) -> Result<(), Self::Error> {
+        (*self).add_hex_gap(empty)
+    }
+    fn print_ascii_chunk(
+        &mut self,
+        line_offset: usize,
+        bytes: &[u8],
+        reference: Option<FormatRef<'_>>,
+    ) -> Result<(), Self::Error> {
+        (*self).print_ascii_chunk(line_offset, bytes, reference)
+    }
 
     fn flush_line(&mut self) -> Result<(), Self::Error> {
         (*self).flush_line()
@@ -107,24 +130,16 @@ where
     }
 }
 
-/// Default implementation of the whole line formatting routine, which can be used by implementors of `Formatter`.
-///
-/// # Panics
-/// If references are not sorted and non-overlapping, this function will panic with an assertion error.
-pub fn format_whole_line_inner<F>(
-    formatter: &mut F,
-    starting_offset: usize,
+type Item<'a> = (usize, &'a [u8], Option<FormatRef<'a>>);
+
+fn inner_chunker<E>(
     part_offset: usize,
     bytes: &[u8],
     references_starting_offset: RefenceIndex,
     references: &[Ref],
-) -> Result<(), F::Error>
-where
-    F: Formatter + ?Sized,
-{
-    formatter.print_offset(starting_offset)?;
+    mut handler: impl FnMut(Item<'_>) -> Result<(), E>,
+) -> Result<(), E> {
     let mut cursor = 0;
-
     for (index, reference) in references.iter().enumerate() {
         // reference range might start before the current line.
         let reference_start = reference.range.start.saturating_sub(part_offset);
@@ -144,12 +159,12 @@ where
         );
         // No chunk to format before the reference, so we can directly format the reference chunk.
         if cursor < reference_start {
-            formatter.print_hex_chunk(cursor, &bytes[cursor..reference_start], None)?;
+            handler((cursor, &bytes[cursor..reference_start], None))?;
             cursor = reference_start;
         }
 
         let end = reference_end.min(bytes.len());
-        formatter.print_hex_chunk(
+        handler((
             cursor,
             &bytes[cursor..end],
             Some(FormatRef {
@@ -157,14 +172,58 @@ where
                 part_index: references_starting_offset + index,
                 wrap_type,
             }),
-        )?;
+        ))?;
         cursor = reference_end;
     }
     // Format the remaining chunk after the last reference, if any.
     if cursor < bytes.len() {
-        formatter.print_hex_chunk(cursor, &bytes[cursor..], None)?;
+        handler((cursor, &bytes[cursor..], None))?;
+    }
+    Ok(())
+}
+
+/// Default implementation of the whole line formatting routine, which can be used by implementors of `Formatter`.
+///
+/// # Panics
+/// If references are not sorted and non-overlapping, this function will panic with an assertion error.
+pub fn format_whole_line_inner<F>(
+    formatter: &mut F,
+    starting_offset: usize,
+    part_offset: usize,
+    bytes: &[u8],
+    line_size: usize,
+    references_starting_offset: RefenceIndex,
+    references: &[Ref],
+) -> Result<(), F::Error>
+where
+    F: Formatter + ?Sized,
+{
+    formatter.print_offset(starting_offset)?;
+    inner_chunker(
+        part_offset,
+        bytes,
+        references_starting_offset,
+        references,
+        |(line_offset, chunk_bytes, reference)| {
+            formatter.print_hex_chunk(line_offset, chunk_bytes, reference)
+        },
+    )?;
+
+    let gap = (line_size - (bytes.len() % line_size)) % line_size;
+    dbg!(gap, bytes.len(), line_size);
+    if let Some(non_zero_gap) = NonZero::new(gap) {
+        formatter.add_hex_gap(non_zero_gap)?;
     }
 
+    inner_chunker(
+        part_offset,
+        bytes,
+        references_starting_offset,
+        references,
+        |(line_offset, chunk_bytes, reference)| {
+            formatter.print_ascii_chunk(line_offset, chunk_bytes, reference)
+        },
+    )?;
     formatter.flush_line()?;
 
     Ok(())
@@ -248,9 +307,40 @@ where
         }
         Ok(())
     }
+    fn add_hex_gap(&mut self, empty: NonZero<usize>) -> Result<(), Self::Error> {
+        let gap = (empty.get() * 2) + (empty.get() / 2); // 2 spaces for hex + 1 space for gap every 2 bytes
+        write!(self.writer, "{:width$}", " ", width = gap)?;
+        Ok(())
+    }
+    fn print_ascii_chunk(
+        &mut self,
+        line_offset: usize,
+        bytes: &[u8],
+        reference: Option<FormatRef<'_>>,
+    ) -> Result<(), Self::Error> {
+        if line_offset == 0 {
+            write!(self.writer, " |")?;
+        }
+        for &b in bytes {
+            let ch = if (0x20..=0x7E).contains(&b) {
+                b as char
+            } else {
+                '·' // U+00B7 middle dot — ligature-safe
+            };
+
+            if let Some(ref format_ref) = reference
+                && let Some((fg, bg)) = self.palette(format_ref.part_index)
+            {
+                write!(self.writer, "\x1b[{fg};{bg}m{ch}\x1b[0m")?;
+            } else {
+                write!(self.writer, "{ch}")?;
+            }
+        }
+        Ok(())
+    }
 
     fn flush_line(&mut self) -> Result<(), Self::Error> {
-        writeln!(self.writer)?;
+        writeln!(self.writer, "|")?;
         Ok(())
     }
 
@@ -482,9 +572,41 @@ where
 
         Ok(())
     }
+    fn add_hex_gap(&mut self, empty_bytes: NonZero<usize>) -> Result<(), Self::Error> {
+        let gap = (empty_bytes.get() * 2) + (empty_bytes.get() / 2); // 2 spaces for hex + 1 space for gap every 2 bytes
+
+        write!(self.writer, "{:width$}", " ", width = gap)?;
+        self.annotation_line.extend(std::iter::repeat_n(' ', gap)); // Add space to annotation line for the gap
+
+        Ok(())
+    }
+
+    fn print_ascii_chunk(
+        &mut self,
+        line_offset: usize,
+        bytes: &[u8],
+        _reference: Option<FormatRef<'_>>,
+    ) -> Result<(), Self::Error> {
+        if line_offset == 0 {
+            write!(self.writer, " |")?;
+            self.annotation_line.push('|');
+        }
+        for &b in bytes {
+            let ch = if (0x20..=0x7E).contains(&b) {
+                b as char
+            } else {
+                '·' // U+00B7 middle dot — ligature-safe
+            };
+            write!(self.writer, "{ch}")?;
+        }
+        self.annotation_line
+            .extend(std::iter::repeat_n(' ', bytes.len()));
+        Ok(())
+    }
 
     fn flush_line(&mut self) -> Result<(), Self::Error> {
-        writeln!(self.writer)?;
+        writeln!(self.writer, "|")?;
+        self.annotation_line.push('|');
         if !self.annotation_line.is_empty() {
             let annotation_str: String = self.annotation_line.iter().collect();
             writeln!(self.writer, "        | {annotation_str}",)?;

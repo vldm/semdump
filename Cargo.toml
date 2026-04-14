@@ -2,16 +2,12 @@
 name = "semdump"
 version = "0.1.0"
 edition = "2024"
-keywords = [
-    "hexdump",
-    "formatter",
-    "data visualization",
-    "semantic dump",
-    "annotated hexdump",
-]
+keywords = ["hexdump", "dump", "formatter", "semantic", "annotated"]
+categories = ["encoding", "development-tools", "visualization"]
 description = "A Rust library for rendering annotated hexdumps of binary data, highlighting specific parts based on their semantic meaning."
 authors = ["Vladimir Motylenko <me@vldm.cc>"]
 license = "MIT"
+repository = "https://github.com/vldm/semdump"
 
 [dependencies]
 

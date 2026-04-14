@@ -293,7 +293,14 @@ where
         let references = &refs[start_index..next_index];
 
         let starting_offset = part_base + part_offset;
-        out.format_whole_line(starting_offset, part_offset, chunk, start_index, references)?;
+        out.format_whole_line(
+            starting_offset,
+            part_offset,
+            chunk,
+            cols,
+            start_index,
+            references,
+        )?;
 
         // Update start_index to skip already rendered references.
         // Last reference may be partially used in both lines, so check and update starting_index accordingly.
@@ -427,11 +434,12 @@ mod tests {
 
         assert_eq!(
             output,
-            "00000000   0100 0000 2000 0000 1000 0000 DEAD BEEF
-00000010   4865 6C6C 6F00 0000 3412 0000 0000 0000
-00000020   AABB CCDD EEFF 1122 3344 5566 7788 9900
-00000030   0000 0000 AABB CCDD EEFF 1122 3344 5566
-00000040   7788 9900\n  REFS (test): 4 references
+            "00000000   0100 0000 2000 0000 1000 0000 DEAD BEEF |···· ···········|
+00000010   4865 6C6C 6F00 0000 3412 0000 0000 0000 |Hello···4·······|
+00000020   AABB CCDD EEFF 1122 3344 5566 7788 9900 |·······\"3DUfw···|
+00000030   0000 0000 AABB CCDD EEFF 1122 3344 5566 |···········\"3DUf|
+00000040   7788 9900                               |w···|
+  REFS (test): 4 references
   [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
   [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
   [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
@@ -453,22 +461,22 @@ mod tests {
         println!("OUTPUT:\n{output}");
         assert_eq!(
             output,
-            "00000000| 0100 0000 2000 0000 1000 0000 DEAD BEEF
-        | └-----[0]-----┘    └--------[1]---------
-00000010| 4865 6C6C 6F00 0000 3412 0000 0000 0000
-        | ----[1]----┘       └-[2]--┘             
-00000020| AABB CCDD EEFF 1122 3344 5566 7788 9900
-        |                                   └3┘   
-00000030| 0000 0000 AABB CCDD EEFF 1122 3344 5566
-        |                                         
-00000040| 7788 9900
-        |           
+            r#"00000000| 0100 0000 2000 0000 1000 0000 DEAD BEEF |···· ···········|
+        | └-----[0]-----┘    └--------[1]---------|                |
+00000010| 4865 6C6C 6F00 0000 3412 0000 0000 0000 |Hello···4·······|
+        | ----[1]----┘       └-[2]--┘             |                |
+00000020| AABB CCDD EEFF 1122 3344 5566 7788 9900 |·······"3DUfw···|
+        |                                   └3┘   |                |
+00000030| 0000 0000 AABB CCDD EEFF 1122 3344 5566 |···········"3DUf|
+        |                                         |                |
+00000040| 7788 9900                               |w···|
+        |                                         |    |
   REFS (test): 4 references
   [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
   [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
   [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
   [ 3] tiny   range=0x002E..0x002F (1)
-"
+"#
         );
     }
 
@@ -485,7 +493,7 @@ mod tests {
         dump.push_part(DataPart::from_bytes(vec![0xAA, 0xBB, 0xCC, 0xDD]))
             .add_global_ref(dump_offset..dump_offset + 4, "some other data");
 
-        let formatter = ColorFormatter::new(std::io::stdout());
+        let formatter = ColorFormatter::new(stdout());
         dump.render(formatter).unwrap();
     }
 }
