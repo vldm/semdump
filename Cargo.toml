@@ -10,6 +10,8 @@ keywords = [
     "annotated hexdump",
 ]
 description = "A Rust library for rendering annotated hexdumps of binary data, highlighting specific parts based on their semantic meaning."
+authors = ["Vladimir Motylenko <me@vldm.cc>"]
+license = "MIT"
 
 [dependencies]
 
