@@ -1,0 +1,17 @@
+[package]
+name = "semdump"
+version = "0.1.0"
+edition = "2024"
+keywords = [
+    "hexdump",
+    "formatter",
+    "data visualization",
+    "semantic dump",
+    "annotated hexdump",
+]
+description = "A Rust library for rendering annotated hexdumps of binary data, highlighting specific parts based on their semantic meaning."
+
+[dependencies]
+
+[dev-dependencies]
+insta = "1"

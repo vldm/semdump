@@ -1,0 +1,19 @@
+---
+source: src/lib.rs
+expression: output
+---
+00000000| 0100 0000 2000 0000 1000 0000 DEAD BEEF
+        | └-----[0]-----┘    └--------[1]---------
+00000010| 4865 6C6C 6F00 0000 3412 0000 0000 0000
+        | ----[1]----┘       └-[2]--┘             
+00000020| AABB CCDD EEFF 1122 3344 5566 7788 9900
+        |                                   └3┘   
+00000030| 0000 0000 AABB CCDD EEFF 1122 3344 5566
+        |                                         
+00000040| 7788 9900
+        |           
+  REFS (test): 4 references
+  [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
+  [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
+  [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
+  [ 3] tiny   range=0x002E..0x002F (1)
