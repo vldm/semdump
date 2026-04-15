@@ -161,8 +161,7 @@ fn inner_chunker<E>(
 
         assert!(
             reference_start >= cursor,
-            "References should be sorted and non-overlapping, but reference {} starts at {reference_start} which is before the current cursor {cursor}",
-            index
+            "References should be sorted and non-overlapping, but reference {index} starts at {reference_start} which is before the current cursor {cursor}",
         );
         // No chunk to format before the reference, so we can directly format the reference chunk.
         if cursor < reference_start {
