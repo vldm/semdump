@@ -6,7 +6,7 @@
 //!
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::must_use_candidate)]
-use std::{borrow::Cow, ops::Range};
+use std::{borrow::Cow, num::NonZero, ops::Range};
 
 pub use crate::formatter::ColorFormatter;
 use crate::formatter::Formatter;
@@ -298,7 +298,7 @@ where
             part_offset,
             chunk,
             cols,
-            start_index,
+            NonZero::new(1 + start_index).unwrap(),
             references,
         )?;
 
@@ -319,6 +319,7 @@ where
 
     out.legend_header("test", part.refs.len())?;
     for (index, reference) in part.refs.iter().enumerate() {
+        let index = NonZero::new(1 + index).unwrap();
         out.legend_entry(reference, index)?;
     }
 
@@ -440,10 +441,10 @@ mod tests {
 00000030   0000 0000 AABB CCDD EEFF 1122 3344 5566 |···········\"3DUf|
 00000040   7788 9900                               |w···|
   REFS (test): 4 references
-  [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
-  [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
-  [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
-  [ 3] tiny   range=0x002E..0x002F (1)
+  [ 1] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
+  [ 2] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
+  [ 3] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
+  [ 4] tiny   range=0x002E..0x002F (1)
 "
         );
     }
@@ -462,20 +463,20 @@ mod tests {
         assert_eq!(
             output,
             r#"00000000| 0100 0000 2000 0000 1000 0000 DEAD BEEF |···· ···········|
-        | └-----[0]-----┘    └--------[1]---------|                |
+        | └-----[1]-----┘    └--------[2]---------|                |
 00000010| 4865 6C6C 6F00 0000 3412 0000 0000 0000 |Hello···4·······|
-        | ----[1]----┘       └-[2]--┘             |                |
+        | ----[2]----┘       └-[3]--┘             |                |
 00000020| AABB CCDD EEFF 1122 3344 5566 7788 9900 |·······"3DUfw···|
-        |                                   └3┘   |                |
+        |                                   └4┘   |                |
 00000030| 0000 0000 AABB CCDD EEFF 1122 3344 5566 |···········"3DUf|
         |                                         |                |
 00000040| 7788 9900                               |w···|
         |                                         |    |
   REFS (test): 4 references
-  [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
-  [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
-  [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
-  [ 3] tiny   range=0x002E..0x002F (1)
+  [ 1] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
+  [ 2] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
+  [ 3] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
+  [ 4] tiny   range=0x002E..0x002F (1)
 "#
         );
     }

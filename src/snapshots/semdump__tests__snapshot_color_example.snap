@@ -8,7 +8,7 @@ expression: output
 00000030   0000 0000 AABB CCDD EEFF 1122 3344 5566 |···········"3DUf|
 00000040   7788 9900                               |w···|
   REFS (test): 4 references
-  [ 0] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
-  [ 1] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
-  [ 2] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
-  [ 3] tiny   range=0x002E..0x002F (1)
+  [ 1] .Lanon.faeb22a22ed4190fdf8d8c764500d80d.47   range=0x0000..0x0006 (6)
+  [ 2] very_very_long_human_readable_field_name   range=0x0008..0x0015 (13)
+  [ 3] .Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02   range=0x0018..0x001B (3)
+  [ 4] tiny   range=0x002E..0x002F (1)

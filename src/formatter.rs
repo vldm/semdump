@@ -1,8 +1,14 @@
-use std::{iter::repeat_n, num::NonZero};
+use std::num::NonZero;
 
 use crate::{DataPart, Ref};
 
-pub type RefenceIndex = usize;
+mod annotated;
+mod color;
+pub use annotated::*;
+pub use color::*;
+
+/// Reference index is 1-based index of reference in the part, used for formatting and legend.
+pub type RefenceIndex = NonZero<usize>;
 
 /// Implementation of custom formatter for hexdump output.
 pub trait Formatter {
@@ -141,6 +147,7 @@ fn inner_chunker<E>(
 ) -> Result<(), E> {
     let mut cursor = 0;
     for (index, reference) in references.iter().enumerate() {
+        let index = references_starting_offset.saturating_add(index);
         // reference range might start before the current line.
         let reference_start = reference.range.start.saturating_sub(part_offset);
         let wrap_type = if reference.range.start < part_offset {
@@ -155,7 +162,7 @@ fn inner_chunker<E>(
         assert!(
             reference_start >= cursor,
             "References should be sorted and non-overlapping, but reference {} starts at {reference_start} which is before the current cursor {cursor}",
-            index + references_starting_offset
+            index
         );
         // No chunk to format before the reference, so we can directly format the reference chunk.
         if cursor < reference_start {
@@ -169,7 +176,7 @@ fn inner_chunker<E>(
             &bytes[cursor..end],
             Some(FormatRef {
                 reference,
-                part_index: references_starting_offset + index,
+                part_index: index,
                 wrap_type,
             }),
         ))?;
@@ -210,7 +217,6 @@ where
     )?;
 
     let gap = (line_size - (bytes.len() % line_size)) % line_size;
-    dbg!(gap, bytes.len(), line_size);
     if let Some(non_zero_gap) = NonZero::new(gap) {
         formatter.add_hex_gap(non_zero_gap)?;
     }
@@ -227,194 +233,6 @@ where
     formatter.flush_line()?;
 
     Ok(())
-}
-
-pub type PaletteFn = Box<dyn Fn(RefenceIndex) -> Option<(usize, usize)>>;
-///
-/// Formatter that adds ANSI color codes to the hex output based on the references.
-///
-pub struct ColorFormatter<W>
-where
-    W: std::io::Write,
-{
-    writer: W,
-    custom_palette: Option<PaletteFn>,
-}
-
-impl<W> ColorFormatter<W>
-where
-    W: std::io::Write,
-{
-    pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            custom_palette: None,
-        }
-    }
-
-    ///
-    /// Create a new `ColorFormatter` with a custom palette function.
-    ///
-    /// Palette function takes a reference index and returns a tuple of ANSI color codes (foreground and background).
-    /// Palette function can return `None` to indicate that no color should be applied for the given reference index.
-    pub fn with_palette(writer: W, palette: PaletteFn) -> Self {
-        Self {
-            writer,
-            custom_palette: Some(palette),
-        }
-    }
-
-    /// Get the ANSI color codes for the given reference index.
-    pub(crate) fn palette(&self, index: usize) -> Option<(usize, usize)> {
-        if let Some(ref custom_palette) = self.custom_palette {
-            custom_palette(index)
-        } else {
-            Some(palette(index))
-        }
-    }
-}
-
-impl<W> Formatter for ColorFormatter<W>
-where
-    W: std::io::Write,
-{
-    type Error = std::io::Error;
-
-    fn print_offset(&mut self, offset: usize) -> Result<(), Self::Error> {
-        write!(self.writer, "{offset:08X}  ")
-    }
-
-    /// Print hex as pair of bytes (half of word) with color if reference is present.
-    fn print_hex_chunk(
-        &mut self,
-        line_offset: usize,
-        bytes: &[u8],
-        reference: Option<FormatRef<'_>>,
-    ) -> Result<(), Self::Error> {
-        for (i, &byte) in bytes.iter().enumerate() {
-            let gap_before = (line_offset + i).is_multiple_of(2);
-            if gap_before {
-                write!(self.writer, " ")?;
-            }
-
-            if let Some(ref format_ref) = reference
-                && let Some((fg, bg)) = self.palette(format_ref.part_index)
-            {
-                write!(self.writer, "\x1b[{fg};{bg}m{byte:02X}\x1b[0m")?;
-            } else {
-                write!(self.writer, "{byte:02X}")?;
-            }
-        }
-        Ok(())
-    }
-    fn add_hex_gap(&mut self, empty: NonZero<usize>) -> Result<(), Self::Error> {
-        let gap = (empty.get() * 2) + (empty.get() / 2); // 2 spaces for hex + 1 space for gap every 2 bytes
-        write!(self.writer, "{:width$}", " ", width = gap)?;
-        Ok(())
-    }
-    fn print_ascii_chunk(
-        &mut self,
-        line_offset: usize,
-        bytes: &[u8],
-        reference: Option<FormatRef<'_>>,
-    ) -> Result<(), Self::Error> {
-        if line_offset == 0 {
-            write!(self.writer, " |")?;
-        }
-        for &b in bytes {
-            let ch = if (0x20..=0x7E).contains(&b) {
-                b as char
-            } else {
-                '·' // U+00B7 middle dot — ligature-safe
-            };
-
-            if let Some(ref format_ref) = reference
-                && let Some((fg, bg)) = self.palette(format_ref.part_index)
-            {
-                write!(self.writer, "\x1b[{fg};{bg}m{ch}\x1b[0m")?;
-            } else {
-                write!(self.writer, "{ch}")?;
-            }
-        }
-        Ok(())
-    }
-
-    fn flush_line(&mut self) -> Result<(), Self::Error> {
-        writeln!(self.writer, "|")?;
-        Ok(())
-    }
-
-    fn legend_header(&mut self, data_part: &str, refs_count: usize) -> Result<(), Self::Error> {
-        writeln!(
-            self.writer,
-            "  REFS ({}): {}",
-            data_part,
-            if refs_count == 0 {
-                "none".to_string()
-            } else {
-                format!(
-                    "{} reference{}",
-                    refs_count,
-                    if refs_count > 1 { "s" } else { "" }
-                )
-            }
-        )?;
-        Ok(())
-    }
-
-    fn legend_entry(&mut self, reference: &Ref, index: RefenceIndex) -> Result<(), Self::Error> {
-        if let Some((fg, bg)) = self.palette(index) {
-            writeln!(
-                self.writer,
-                "  [\x1b[{fg};{bg}m{index:>2}\x1b[0m] {}   range=0x{:04X}..0x{:04X} ({})",
-                reference.name,
-                reference.range.start,
-                reference.range.end,
-                reference.range.end.saturating_sub(reference.range.start)
-            )?;
-        } else {
-            writeln!(
-                self.writer,
-                "  [{index:>2}] {}   range=0x{:04X}..0x{:04X} ({})",
-                reference.name,
-                reference.range.start,
-                reference.range.end,
-                reference.range.end.saturating_sub(reference.range.start)
-            )?;
-        }
-        Ok(())
-    }
-}
-
-/// Palette function with no color.
-pub fn no_color_palette(_: RefenceIndex) -> Option<(usize, usize)> {
-    None
-}
-
-/// Returns (`fg_code`, `bg_code`) — high-contrast ANSI pairs, excluding default white-on-black.
-///
-/// Default palette used in `ColorFormatter` if no custom palette is provided.
-pub fn palette(i: usize) -> (usize, usize) {
-    // Hand-picked (fg, bg) pairs: every combination has strong contrast,
-    // avoids default terminal colors (white on black), and adjacent indices
-    // use distinct hues for easy visual discrimination.
-    const PAIRS: &[(usize, usize)] = &[
-        (97, 41),  // bright white on red
-        (30, 42),  // black on green
-        (97, 44),  // bright white on blue
-        (30, 43),  // black on yellow
-        (97, 45),  // bright white on magenta
-        (30, 46),  // black on cyan
-        (30, 47),  // black on white
-        (97, 101), // bright white on bright red
-        (30, 102), // black on bright green
-        (97, 104), // bright white on bright blue
-        (30, 103), // black on bright yellow
-        (30, 106), // black on bright cyan
-        (97, 105), // bright white on bright magenta
-    ];
-    let (fg, bg) = PAIRS[i % PAIRS.len()];
-    (fg, bg)
 }
 
 /// Type of reference wrap
@@ -437,211 +255,4 @@ pub struct FormatRef<'a> {
     /// Marker indicating that this
     /// reference started on line before and continues on the current line.
     pub wrap_type: RefWrap,
-}
-
-///
-/// Formatter that add reference after hexdump line.
-///
-/// Reference is added in the form of ASCII art using characters like '└', '─', '┘', `┴` to indicate the span of the reference.
-/// The starting and ending symbols are either point to byte in range or a formatting gap between bytes.
-///
-/// Example:
-/// ```text
-/// 00000000|  1A2B 3C4D 5E6F 7A8B 9C0D E1F2 3456 7890
-///         |  └[1]┘       └[2]┘        └[3]┴[4]┘└1┘
-/// ```
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnnotateFormatter<W>
-where
-    W: std::io::Write,
-{
-    writer: W,
-    annotation_line: Vec<char>,
-    // Indicates whether part need to be separated in order to fit annotations.
-    // need_new_separator: bool,
-}
-
-impl<W> AnnotateFormatter<W>
-where
-    W: std::io::Write,
-{
-    pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            annotation_line: Vec::new(),
-        }
-    }
-
-    /// Create a buffer for annotation span.
-    ///
-    fn create_annotation_buffer(
-        &mut self,
-        gap_before: bool,
-        mut span_len: usize,
-        ref_wrap: RefWrap,
-    ) -> &mut [char] {
-        let mut borrowed_gap = None;
-        if gap_before {
-            span_len += 1;
-            borrowed_gap = self.annotation_line.pop();
-        }
-        let start = self.annotation_line.len();
-        self.annotation_line.extend(repeat_n('-', span_len));
-
-        let span = &mut self.annotation_line[start..];
-        // add start symbol
-        if matches!(ref_wrap, RefWrap::Start | RefWrap::Single) {
-            if borrowed_gap == Some('┘') {
-                span[0] = '┴';
-            } else {
-                span[0] = '└';
-            }
-        }
-        // add end symbol
-        if matches!(ref_wrap, RefWrap::End | RefWrap::Single) {
-            span[span_len - 1] = '┘';
-        }
-        span
-    }
-}
-
-impl<W> Formatter for AnnotateFormatter<W>
-where
-    W: std::io::Write,
-{
-    type Error = std::io::Error;
-
-    fn print_offset(&mut self, offset: usize) -> Result<(), Self::Error> {
-        write!(self.writer, "{offset:08X}| ")
-    }
-
-    fn print_hex_chunk(
-        &mut self,
-        line_offset: usize,
-        bytes: &[u8],
-        reference: Option<FormatRef<'_>>,
-    ) -> Result<(), Self::Error> {
-        // Print hex as is
-        for (i, &byte) in bytes.iter().enumerate() {
-            let gap_before = (line_offset + i).is_multiple_of(2) && (line_offset + i) != 0;
-            if gap_before {
-                write!(self.writer, " ")?;
-            }
-            // we print hex as pair of bytes
-            write!(self.writer, "{byte:02X}")?;
-        }
-
-        let have_gap_before = line_offset.is_multiple_of(2) && line_offset != 0;
-        let have_gap_after = (line_offset + bytes.len()).is_multiple_of(2);
-        let num_gaps_between = (bytes.len().saturating_sub(1)) / 2;
-        let span_len = bytes.len() * 2 + num_gaps_between + usize::from(have_gap_after);
-
-        // Add annotation of reference index in format of:
-        // └─IDX─┘
-        if let Some(ref reference) = reference {
-            // idx is guaranteed to be 1 or 2 digits long.
-            let idx_str = if reference.reference.range.end - reference.reference.range.start > 1 {
-                format!("[{}]", reference.part_index)
-            } else {
-                format!("{}", reference.part_index)
-            };
-            let id_len = idx_str.chars().count();
-
-            let span =
-                self.create_annotation_buffer(have_gap_before, span_len, reference.wrap_type);
-
-            let span_len = span.len();
-
-            let idx_pos = (span_len - id_len) / 2;
-
-            // Can't format id in the span, just fill it with '='
-            if id_len > span_len {
-                span.fill('=');
-            }
-
-            // copy idx_str to annotation_buffer at idx_pos
-            for (i, c) in idx_str.chars().enumerate() {
-                span[idx_pos + i] = c;
-            }
-        } else {
-            // If no reference, just add spaces to keep annotation line aligned with hex output.
-            self.annotation_line
-                .extend(std::iter::repeat_n(' ', span_len));
-        }
-
-        Ok(())
-    }
-    fn add_hex_gap(&mut self, empty_bytes: NonZero<usize>) -> Result<(), Self::Error> {
-        let gap = (empty_bytes.get() * 2) + (empty_bytes.get() / 2); // 2 spaces for hex + 1 space for gap every 2 bytes
-
-        write!(self.writer, "{:width$}", " ", width = gap)?;
-        self.annotation_line.extend(std::iter::repeat_n(' ', gap)); // Add space to annotation line for the gap
-
-        Ok(())
-    }
-
-    fn print_ascii_chunk(
-        &mut self,
-        line_offset: usize,
-        bytes: &[u8],
-        _reference: Option<FormatRef<'_>>,
-    ) -> Result<(), Self::Error> {
-        if line_offset == 0 {
-            write!(self.writer, " |")?;
-            self.annotation_line.push('|');
-        }
-        for &b in bytes {
-            let ch = if (0x20..=0x7E).contains(&b) {
-                b as char
-            } else {
-                '·' // U+00B7 middle dot — ligature-safe
-            };
-            write!(self.writer, "{ch}")?;
-        }
-        self.annotation_line
-            .extend(std::iter::repeat_n(' ', bytes.len()));
-        Ok(())
-    }
-
-    fn flush_line(&mut self) -> Result<(), Self::Error> {
-        writeln!(self.writer, "|")?;
-        self.annotation_line.push('|');
-        if !self.annotation_line.is_empty() {
-            let annotation_str: String = self.annotation_line.iter().collect();
-            writeln!(self.writer, "        | {annotation_str}",)?;
-        }
-        self.annotation_line.clear();
-        Ok(())
-    }
-
-    fn legend_header(&mut self, data_part: &str, refs_count: usize) -> Result<(), Self::Error> {
-        writeln!(
-            self.writer,
-            "  REFS ({}): {}",
-            data_part,
-            if refs_count == 0 {
-                "none".to_string()
-            } else {
-                format!(
-                    "{} reference{}",
-                    refs_count,
-                    if refs_count > 1 { "s" } else { "" }
-                )
-            }
-        )?;
-        Ok(())
-    }
-
-    fn legend_entry(&mut self, reference: &Ref, index: RefenceIndex) -> Result<(), Self::Error> {
-        writeln!(
-            self.writer,
-            "  [{index:>2}] {}   range=0x{:04X}..0x{:04X} ({})",
-            reference.name,
-            reference.range.start,
-            reference.range.end,
-            reference.range.end - reference.range.start
-        )?;
-        Ok(())
-    }
 }
