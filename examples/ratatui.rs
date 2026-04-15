@@ -13,7 +13,7 @@ mod impl_ {
         (0..=size).collect()
     }
 
-    pub gfn create_dump() -> SemanticDump<'static> {
+    pub fn create_dump() -> SemanticDump<'static> {
         let mut dump = SemanticDump::new(0);
 
         // Part can be created with builder pattern
