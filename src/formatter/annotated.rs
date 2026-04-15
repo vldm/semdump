@@ -1,6 +1,6 @@
 use std::{iter::repeat_n, num::NonZero};
 
-use crate::Ref;
+use crate::{DataPart, Ref};
 
 use super::{FormatRef, Formatter, RefWrap, RefenceIndex};
 
@@ -75,6 +75,24 @@ where
     W: std::io::Write,
 {
     type Error = std::io::Error;
+
+    fn print_part_header(
+        &mut self,
+        starting_offset: usize,
+        data_part: &DataPart,
+    ) -> Result<(), Self::Error> {
+        if !data_part.label.is_empty() {
+            let start = starting_offset;
+            let end = starting_offset + data_part.bytes.len();
+            let size = end - start;
+            writeln!(
+                self.writer,
+                "--- {} (0x{start:08X}..0x{end:08X}, {} bytes) ---",
+                data_part.label, size
+            )?;
+        }
+        Ok(())
+    }
 
     fn print_offset(&mut self, offset: usize) -> Result<(), Self::Error> {
         write!(self.writer, "{offset:08X}| ")
@@ -201,7 +219,7 @@ where
         writeln!(
             self.writer,
             "  [{index:>2}] {}   range=0x{:04X}..0x{:04X} ({})",
-            reference.name,
+            reference.label,
             reference.range.start,
             reference.range.end,
             reference.range.end - reference.range.start

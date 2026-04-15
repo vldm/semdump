@@ -58,6 +58,23 @@ where
     fn print_offset(&mut self, offset: usize) -> Result<(), Self::Error> {
         write!(self.writer, "{offset:08X}  ")
     }
+    fn print_part_header(
+        &mut self,
+        starting_offset: usize,
+        data_part: &crate::DataPart,
+    ) -> Result<(), Self::Error> {
+        if !data_part.label.is_empty() {
+            let start = starting_offset;
+            let end = starting_offset + data_part.bytes.len();
+            let size = end - start;
+            writeln!(
+                self.writer,
+                "--- {} (0x{start:08X}..0x{end:08X}, {} bytes) ---",
+                data_part.label, size
+            )?;
+        }
+        Ok(())
+    }
 
     /// Print hex as pair of bytes (half of word) with color if reference is present.
     fn print_hex_chunk(
@@ -142,7 +159,7 @@ where
             writeln!(
                 self.writer,
                 "  [\x1b[{fg};{bg}m{index:>2}\x1b[0m] {}   range=0x{:04X}..0x{:04X} ({})",
-                reference.name,
+                reference.label,
                 reference.range.start,
                 reference.range.end,
                 reference.range.end.saturating_sub(reference.range.start)
@@ -151,7 +168,7 @@ where
             writeln!(
                 self.writer,
                 "  [{index:>2}] {}   range=0x{:04X}..0x{:04X} ({})",
-                reference.name,
+                reference.label,
                 reference.range.start,
                 reference.range.end,
                 reference.range.end.saturating_sub(reference.range.start)

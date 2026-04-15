@@ -4,8 +4,13 @@ use crate::{DataPart, Ref};
 
 mod annotated;
 mod color;
+#[cfg(feature = "ratatui")]
+mod ratatui;
+
 pub use annotated::*;
 pub use color::*;
+#[cfg(feature = "ratatui")]
+pub use ratatui::*;
 
 /// Reference index is 1-based index of reference in the part, used for formatting and legend.
 pub type RefenceIndex = NonZero<usize>;
@@ -42,10 +47,14 @@ pub trait Formatter {
         )
     }
 
-    fn print_part_header(&mut self, data_part: &DataPart) -> Result<(), Self::Error> {
-        let _ = data_part;
-        Ok(())
-    }
+    /// Print the header for a data part, before the hexdump.
+    ///
+    /// e.g: `Data <LABEL> 0x0000..0x1000 (100bytes):`
+    fn print_part_header(
+        &mut self,
+        starting_offset: usize,
+        data_part: &DataPart,
+    ) -> Result<(), Self::Error>;
     /// Format the offset of the current line in the hexdump.
     /// The offset should contain gap or any necessary padding to align the hex output.
     ///
@@ -99,6 +108,24 @@ where
 {
     type Error = F::Error;
 
+    fn format_whole_line(
+        &mut self,
+        starting_offset: usize,
+        part_offset: usize,
+        bytes: &[u8],
+        line_size: usize,
+        references_starting_offset: RefenceIndex,
+        references: &[Ref],
+    ) -> Result<(), Self::Error> {
+        (*self).format_whole_line(
+            starting_offset,
+            part_offset,
+            bytes,
+            line_size,
+            references_starting_offset,
+            references,
+        )
+    }
     fn print_offset(&mut self, offset: usize) -> Result<(), Self::Error> {
         (*self).print_offset(offset)
     }
@@ -110,6 +137,14 @@ where
         reference: Option<FormatRef<'_>>,
     ) -> Result<(), Self::Error> {
         (*self).print_hex_chunk(offset, bytes, reference)
+    }
+
+    fn print_part_header(
+        &mut self,
+        starting_offset: usize,
+        data_part: &DataPart,
+    ) -> Result<(), Self::Error> {
+        (*self).print_part_header(starting_offset, data_part)
     }
     fn add_hex_gap(&mut self, empty: NonZero<usize>) -> Result<(), Self::Error> {
         (*self).add_hex_gap(empty)

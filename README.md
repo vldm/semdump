@@ -71,6 +71,35 @@ Example output with data from test:
 
 ![Example of output](example.png)
 
+
+## Ratatui integration
+`semdump` includes a built-in formatter for the `ratatui` crate, allowing you to render annotated dumps directly in terminal UIs. To use it, enable the `ratatui` feature:
+
+```toml
+[dependencies]
+semdump = { version = "0.1", features = ["ratatui"] }
+```
+
+Then you can use the `RatatuiFormatter` in your application:
+
+```rust
+use semdump::{SemanticDump, DataPart, RatatuiFormatter};
+let mut dump = SemanticDump::new(0);
+dump.push_part(DataPart::from_bytes(vec![0x01, 0x02, 0x03, 0x04]))
+    .push_ref(0..2, "header")
+    .push_ref(2..4, "payload");
+let formatter = RatatuiFormatter::new();
+dump.render(formatter).unwrap();
+
+let text = formatter.into_text();
+// process text in ratatui loop
+
+```
+
+Example can be found in `examples/ratatui.rs`.
+Note: building this example requires `ratatui` feature to be enabled `cargo run --example ratatui --features=ratatui`.
+
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

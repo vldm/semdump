@@ -8,31 +8,12 @@
 #![allow(clippy::must_use_candidate)]
 use std::{borrow::Cow, num::NonZero, ops::Range};
 
-pub use crate::formatter::ColorFormatter;
+#[cfg(feature = "ratatui")]
+pub use crate::formatter::RatatuiFormatter;
+pub use crate::formatter::{AnnotateFormatter, ColorFormatter};
+
 use crate::formatter::Formatter;
-
 pub mod formatter;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FormatConfig {
-    color: bool,
-}
-
-impl FormatConfig {
-    pub fn new() -> Self {
-        Self { color: true }
-    }
-    fn set_color(&mut self, color: bool) -> &mut Self {
-        self.color = color;
-        self
-    }
-}
-
-impl Default for FormatConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 type StartingOffset = usize;
 
@@ -68,7 +49,6 @@ type StartingOffset = usize;
 pub struct SemanticDump<'src> {
     parts: Vec<(StartingOffset, GapOrPart<'src>)>,
     va_start: StartingOffset,
-    config: FormatConfig,
 }
 
 impl<'src> SemanticDump<'src> {
@@ -81,7 +61,6 @@ impl<'src> SemanticDump<'src> {
         Self {
             parts: Vec::new(),
             va_start: starting_offset,
-            config: FormatConfig::default(),
         }
     }
 
@@ -97,11 +76,6 @@ impl<'src> SemanticDump<'src> {
         self.parts.push((offset, part));
     }
 
-    /// Sets whether to use ANSI color code for highlighting references in the hexdump.
-    pub fn set_color(&mut self, color: bool) -> &mut Self {
-        self.config.set_color(color);
-        self
-    }
     ///
     /// Pushes a new section of data with its associated references.
     /// Checkout [`DataPart`] for details.
@@ -171,6 +145,7 @@ enum GapOrPart<'a> {
 ///
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataPart<'a> {
+    pub label: String,
     pub bytes: Cow<'a, [u8]>,
     pub refs: Vec<Ref>,
 }
@@ -179,9 +154,17 @@ impl<'a> DataPart<'a> {
     /// Creates a new [`DataPart`] from the given bytes, with empty list of references.
     pub fn from_bytes(bytes: impl Into<Cow<'a, [u8]>>) -> Self {
         Self {
+            label: String::new(),
             bytes: bytes.into(),
             refs: Vec::new(),
         }
+    }
+
+    /// Sets the label of this [`DataPart`].
+    /// The label will be printed by formatter before the bytes chunk is displayed.
+    pub fn set_label(&mut self, label: impl Into<String>) -> &mut Self {
+        self.label = label.into();
+        self
     }
 
     ///
@@ -216,23 +199,23 @@ impl<'a> DataPart<'a> {
 pub struct Ref {
     /// Range of bytes in the `DataPart` that this reference corresponds to.
     pub range: Range<usize>,
-    /// Human readable name of the reference, used in legends and custom `Formatter` implementations.
-    pub name: String,
+    /// Human readable label of the reference, used in legends and custom `Formatter` implementations.
+    pub label: String,
     /// Index to external information about this reference, used in custom `Formatter` implementations.
     /// 0 by default.
     pub extra_info: usize,
 }
 
 impl Ref {
-    /// Creates a new reference with the given byte range and name.
-    pub fn new(range: Range<usize>, name: impl Into<String>) -> Self {
-        Self::raw(range, name, 0)
+    /// Creates a new reference with the given byte range and label.
+    pub fn new(range: Range<usize>, label: impl Into<String>) -> Self {
+        Self::raw(range, label, 0)
     }
     /// Creates a new reference with the given byte range, name, and extra information index.
-    pub fn raw(range: Range<usize>, name: impl Into<String>, extra_info: usize) -> Self {
+    pub fn raw(range: Range<usize>, label: impl Into<String>, extra_info: usize) -> Self {
         Self {
             range,
-            name: name.into(),
+            label: label.into(),
             extra_info,
         }
     }
@@ -271,12 +254,14 @@ fn render_part<F>(mut out: F, part_base: usize, part: &DataPart) -> Result<(), F
 where
     F: Formatter,
 {
+    out.print_part_header(part_base, part)?;
     // Collect bytes into a vector for indexing
     let bytes = &part.bytes;
 
     let refs = &part.refs[..];
     let mut start_index = 0;
 
+    // TODO: add config.
     let cols = 16;
 
     for (line_idx, chunk) in bytes.chunks(cols).enumerate() {
@@ -336,6 +321,7 @@ mod tests {
 
     fn test_data() -> DataPart<'static> {
         DataPart {
+            label: String::from("test_data"),
             bytes: vec![
                 0x01, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0xDE, 0xAD,
                 0xBE, 0xEF, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x00, 0x00, 0x00, 0x34, 0x12, 0x00, 0x00,
@@ -347,22 +333,22 @@ mod tests {
             refs: vec![
                 Ref {
                     range: 0..6,
-                    name: ".Lanon.faeb22a22ed4190fdf8d8c764500d80d.47".into(),
+                    label: ".Lanon.faeb22a22ed4190fdf8d8c764500d80d.47".into(),
                     extra_info: 0,
                 },
                 Ref {
                     range: 8..21,
-                    name: "very_very_long_human_readable_field_name".into(),
+                    label: "very_very_long_human_readable_field_name".into(),
                     extra_info: 0,
                 },
                 Ref {
                     range: 24..27,
-                    name: ".Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02".into(),
+                    label: ".Lanon.a91b73428f0e239f7d2e4cbd3eaa0011.02".into(),
                     extra_info: 0,
                 },
                 Ref {
                     range: 46..47,
-                    name: "tiny".into(),
+                    label: "tiny".into(),
                     extra_info: 0,
                 },
             ],
